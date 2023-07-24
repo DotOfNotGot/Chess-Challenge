@@ -4,192 +4,202 @@ using System.Linq;
 using ChessChallenge.API;
 using ChessChallenge.Application.APIHelpers;
 
+public struct EvaluatedMove
+{
+    public Move move;
+    public float evaluation;
+}
+
 public class MyBot : IChessBot
 {
-    private Move[] _moves = new Move[4];
+    // private Move[] _moves = new Move[4];
     // Piece values: null, pawn, knight, bishop, rook, queen, king
-    private readonly int[] _pieceValues = { 0, 100, 300, 300, 500, 900, 10000 };
+    // private readonly int[] _pieceValues = { 0, 100, 300, 300, 500, 900, 10000 };
     public Move Think(Board board, Timer timer)
     {
         Move[] moves = board.GetLegalMoves();
-        var random = new Random();
+        float bestScore = 0.0f;
 
-        var moveToPlay = new Move();
-        int highestValueCapture = 0;
-
-        var passedPawns = GetPassedPawns(board);
-
-        List<Move> goodMoves = new List<Move>();
+        Move moveToMake = new Move();
         
-        goodMoves.AddRange(moves);
-
-        List<Move> startSquareAttackedMoves = new List<Move>();
-
-        for (int i = 0; i < moves.Length; i++)
+        foreach (var move in moves)
         {
-            if (_moves.Contains(moves[i]))
-            {
-                goodMoves.Remove(moves[i]);
-                continue;
-            }
+            float currentScore =
+                EvaluateMove(board, move, 4, float.NegativeInfinity, float.PositiveInfinity, board.IsWhiteToMove);
             
-            if (MoveIsCheckmate(board, moves[i]))
+            if ((board.IsWhiteToMove && currentScore >= bestScore) || (!board.IsWhiteToMove && currentScore <= bestScore))
             {
-                moveToPlay = moves[i];
-                break;
-            }
-
-            bool targetSquareSafe = board.SquareIsAttackedByOpponent(moves[i].TargetSquare) == false;
-            
-            if (MoveIsCheck(board, moves[i]) && targetSquareSafe)
-            {
-                moveToPlay = moves[i];
-                break;
-            }
-
-            // Find highest value capture
-            if(FindBestCapture(board, moves[i], ref highestValueCapture))
-            {
-                moveToPlay = moves[i];
-            }
-
-            if (board.SquareIsAttackedByOpponent(moves[i].StartSquare))
-            {
-                startSquareAttackedMoves.Add(moves[i]);
-            }
-            
-            for (int j = 0; j < passedPawns.Count; j++) 
-            {
-                if (moves[i].StartSquare == passedPawns[j].Square &&
-                    targetSquareSafe)
-                {
-                    moveToPlay = moves[i];
-                    break;
-                }
-            }
-
-            if (moveToPlay != moves[i] && !targetSquareSafe)
-            {
-                goodMoves.Remove(moves[i]);
+                moveToMake = move;
+                bestScore = currentScore;
             }
         }
 
-        int highestValueCounterTake = 0;
-        if (startSquareAttackedMoves.Count != 0)
-        {
-            goodMoves.Clear();
-            moveToPlay = new Move();
-            for (int i = 0; i < startSquareAttackedMoves.Count; i++)
-            {
-                if (FindBestCapture(board, startSquareAttackedMoves[i], ref highestValueCounterTake))
-                {
-                    goodMoves.Add(startSquareAttackedMoves[i]);
-                }
-            }
-        }
-        
-        if (moveToPlay == Move.NullMove && goodMoves.Count != 0)
-        {
-            moveToPlay = goodMoves[random.Next(0, goodMoves.Count)];
-        }
-        else if(moveToPlay == Move.NullMove)
-        {
-            moveToPlay = moves[random.Next(0, moves.Length)];
-        }
+        Console.WriteLine($"Best score: {bestScore}, Move: {moveToMake}");
 
-        UpdateMoveArray(moveToPlay);
-        
-        return moveToPlay;
+        return moveToMake;
     }
 
-    private bool FindBestCapture(Board board, Move move, ref int highestValueCapture)
-    {
-        Piece capturedPiece = board.GetPiece(move.TargetSquare);
-        int capturedPieceValue = _pieceValues[(int)capturedPiece.PieceType];
-        int movePieceValue = _pieceValues[(int)move.MovePieceType];
-            
-        if (capturedPieceValue > highestValueCapture)
-        {
-            highestValueCapture = capturedPieceValue;
-        }
-
-        return capturedPieceValue >= movePieceValue || board.SquareIsAttackedByOpponent(move.TargetSquare) == false;
-    }
+    // private bool FindBestCapture(Board board, Move move, ref int highestValueCapture)
+    // {
+    //     Piece capturedPiece = board.GetPiece(move.TargetSquare);
+    //     int capturedPieceValue = _pieceValues[(int)capturedPiece.PieceType];
+    //     int movePieceValue = _pieceValues[(int)move.MovePieceType];
+    //         
+    //     if (capturedPieceValue > highestValueCapture)
+    //     {
+    //         highestValueCapture = capturedPieceValue;
+    //     }
+    //
+    //     return capturedPieceValue >= movePieceValue || board.SquareIsAttackedByOpponent(move.TargetSquare) == false;
+    // }
     
     // Test if this move gives checkmate
-    private bool MoveIsCheckmate(Board board, Move move)
-    {
-        board.MakeMove(move);
-        bool isMate = board.IsInCheckmate();
-        board.UndoMove(move);
-        return isMate;
-    }
+    // private bool MoveIsCheckmate(Board board, Move move)
+    // {
+    //     board.MakeMove(move);
+    //     bool isMate = board.IsInCheckmate();
+    //     board.UndoMove(move);
+    //     return isMate;
+    // }
     
-    bool MoveIsCheck(Board board, Move move)
+    // bool MoveIsCheck(Board board, Move move)
+    // {
+    //     board.MakeMove(move);
+    //     bool isCheck = board.IsInCheck();
+    //     board.UndoMove(move);
+    //     return isCheck;
+    // }
+    
+    private float EvaluateMove(Board board, Move evMove, int depth, float alpha, float beta, bool isWhite)
     {
-        board.MakeMove(move);
-        bool isCheck = board.IsInCheck();
-        board.UndoMove(move);
-        return isCheck;
-    }
-
-    private float EvaluateMove(Board board, Move move)
-    {
-        board.MakeMove(move);
+        int opponentMovesCount = board.GetLegalMoves().Length;
+        board.MakeMove(evMove);
         var moves = board.GetLegalMoves();
-        
-        for (int i = 0; i < moves.Length; i++)
+        int who2Move = isWhite ? 1 : -1;
+
+        float tempEval = float.NegativeInfinity;
+
+        if (board.IsInCheckmate())
         {
+            board.UndoMove(evMove);
+            return 99999999.0f * who2Move;
         }
         
-        board.UndoMove(move);
-        return 1.0f;
-    }
-
-    private List<Piece> GetPassedPawns(Board board)
-    {
-        var myBotPawns = board.GetPieceList(PieceType.Pawn, board.IsWhiteToMove);
-        var opponentPawns = board.GetPieceList(PieceType.Pawn, !board.IsWhiteToMove);
-
-        List<Piece> passedPawns = new List<Piece>();
-        
-        for (int i = 0; i < myBotPawns.Count; i++)
+        if (moves.Length == 0) 
         {
-            bool addToList = true;
-            for (int j = 0; j < opponentPawns.Count; j++)
-            {
-                if (myBotPawns[i].Square.File == opponentPawns[j].Square.File)
+            board.UndoMove(evMove); 
+            return 0;
+        }
+
+
+        if (depth == 0)
+        {
+            int wMobility = isWhite ? moves.Length : opponentMovesCount;
+            int bMobility = isWhite ? opponentMovesCount : moves.Length;
+            
+            board.UndoMove(evMove);
+            return (100 * (board.GetPieceList(PieceType.Pawn, board.IsWhiteToMove).Count -
+                          board.GetPieceList(PieceType.Pawn, !board.IsWhiteToMove).Count)
+                   + 300 * (board.GetPieceList(PieceType.Knight, board.IsWhiteToMove).Count -
+                            board.GetPieceList(PieceType.Knight, !board.IsWhiteToMove).Count)
+                   + 300 * (board.GetPieceList(PieceType.Bishop, board.IsWhiteToMove).Count -
+                            board.GetPieceList(PieceType.Bishop, !board.IsWhiteToMove).Count)
+                   + 500 * (board.GetPieceList(PieceType.Rook, board.IsWhiteToMove).Count -
+                            board.GetPieceList(PieceType.Rook, !board.IsWhiteToMove).Count)
+                   + 900 * (board.GetPieceList(PieceType.Queen, board.IsWhiteToMove).Count -
+                            board.GetPieceList(PieceType.Queen, !board.IsWhiteToMove).Count) + 5 * (wMobility-bMobility)) * who2Move;
+        }
+
+        
+        foreach (var move in moves)
+        {
+            // if (isWhite)
+            
+                tempEval = Max(tempEval, -EvaluateMove(board, move, depth - 1, -beta, -alpha, !isWhite));
+                alpha = Max(alpha, tempEval);
+
+                if (alpha >= beta)
                 {
-                    addToList = false;
+                    Console.WriteLine("Skipped");
                     break;
                 }
-            }
-
-            if (addToList)
-            {
-                passedPawns.Add(myBotPawns[i]);
-            }
-        }
-
-        return passedPawns;
-    }
-
-    private void UpdateMoveArray(Move newMove)
-    {
-        for (int i = 0; i < _moves.Length; i++)
-        {
-            if (_moves[i] != Move.NullMove) continue;
+                else
+                {
+                    Console.WriteLine("Not Skipped");
+                }
             
-            _moves[i] = newMove;
-            break;
+            // else
+            // {
+            //     tempEval = Min(tempEval, EvaluateMove(board, move, depth - 1, alpha, beta, !isWhite));
+            //     beta = Min(beta, tempEval);
+            //
+            //     if (tempEval < alpha)
+            //     {
+            //         Console.WriteLine("Skipped");
+            //         break;
+            //     }
+            //     else
+            //     {
+            //         Console.WriteLine("Not Skipped");
+            //     }
+            // }
         }
-
-        if (_moves.Contains(newMove)) return;
         
-        for (int i = _moves.Length - 1; i > 0; i--) 
-        { 
-            _moves[i] = _moves[i - 1];
-        }
-        _moves[0] = newMove;
+        board.UndoMove(evMove);
+        return tempEval;
     }
+    
+    private float Max(float f1, float f2) {
+        if (f1 >= f2) return f1; else return f2;
+    }
+    private float Min(float f1, float f2) {
+        if (f1 <= f2) return f1; else return f2;
+    }
+    
+    // private List<Piece> GetPassedPawns(Board board)
+    // {
+    //     var myBotPawns = board.GetPieceList(PieceType.Pawn, board.IsWhiteToMove);
+    //     var opponentPawns = board.GetPieceList(PieceType.Pawn, !board.IsWhiteToMove);
+    //
+    //     List<Piece> passedPawns = new List<Piece>();
+    //     
+    //     for (int i = 0; i < myBotPawns.Count; i++)
+    //     {
+    //         bool addToList = true;
+    //         for (int j = 0; j < opponentPawns.Count; j++)
+    //         {
+    //             if (myBotPawns[i].Square.File == opponentPawns[j].Square.File)
+    //             {
+    //                 addToList = false;
+    //                 break;
+    //             }
+    //         }
+    //
+    //         if (addToList)
+    //         {
+    //             passedPawns.Add(myBotPawns[i]);
+    //         }
+    //     }
+    //
+    //     return passedPawns;
+    // }
+    //
+    // private void UpdateMoveArray(Move newMove)
+    // {
+    //     for (int i = 0; i < _moves.Length; i++)
+    //     {
+    //         if (_moves[i] != Move.NullMove) continue;
+    //         
+    //         _moves[i] = newMove;
+    //         break;
+    //     }
+    //
+    //     if (_moves.Contains(newMove)) return;
+    //     
+    //     for (int i = _moves.Length - 1; i > 0; i--) 
+    //     { 
+    //         _moves[i] = _moves[i - 1];
+    //     }
+    //     _moves[0] = newMove;
+    // }
 }
