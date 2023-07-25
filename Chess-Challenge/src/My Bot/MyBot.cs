@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using ChessChallenge.API;
 using ChessChallenge.Application.APIHelpers;
+using ChessChallenge.Chess;
+using Board = ChessChallenge.API.Board;
+using Move = ChessChallenge.API.Move;
 
 public struct EvaluatedMove
 {
@@ -12,194 +15,89 @@ public struct EvaluatedMove
 
 public class MyBot : IChessBot
 {
-    // private Move[] _moves = new Move[4];
-    // Piece values: null, pawn, knight, bishop, rook, queen, king
-    // private readonly int[] _pieceValues = { 0, 100, 300, 300, 500, 900, 10000 };
+
+    private bool _isWhite;
+    private float _timerSize;
+
+    private int _depth = 3;
+    private Move _bestMove;
+    private float _bestScore;
+
+
+    private int[] _pieceValues = { 0, 100, 300, 310, 500, 900, 10000 };
+
     public Move Think(Board board, Timer timer)
     {
-        Move[] moves = board.GetLegalMoves();
-        float bestScore = 0.0f;
-
-        Move moveToMake = new Move();
+        _timerSize = timer.MillisecondsRemaining;
         
-        foreach (var move in moves)
-        {
-            float currentScore =
-                EvaluateMove(board, move, 4, float.NegativeInfinity, float.PositiveInfinity, board.IsWhiteToMove);
-            
-            if ((board.IsWhiteToMove && currentScore >= bestScore) || (!board.IsWhiteToMove && currentScore <= bestScore))
-            {
-                moveToMake = move;
-                bestScore = currentScore;
-            }
-        }
+        Span<Move> moves = stackalloc Move[256];
+        board.GetLegalMovesNonAlloc(ref moves);
 
-        Console.WriteLine($"Best score: {bestScore}, Move: {moveToMake}");
+        EvaluateMove(board, _depth, float.NegativeInfinity, float.PositiveInfinity, board.IsWhiteToMove ? 1 : -1);
+        Console.WriteLine($"Best score: {_bestScore}, {_bestMove}");
 
-        return moveToMake;
+        return _bestMove;
     }
 
-    // private bool FindBestCapture(Board board, Move move, ref int highestValueCapture)
-    // {
-    //     Piece capturedPiece = board.GetPiece(move.TargetSquare);
-    //     int capturedPieceValue = _pieceValues[(int)capturedPiece.PieceType];
-    //     int movePieceValue = _pieceValues[(int)move.MovePieceType];
-    //         
-    //     if (capturedPieceValue > highestValueCapture)
-    //     {
-    //         highestValueCapture = capturedPieceValue;
-    //     }
-    //
-    //     return capturedPieceValue >= movePieceValue || board.SquareIsAttackedByOpponent(move.TargetSquare) == false;
-    // }
-    
-    // Test if this move gives checkmate
-    // private bool MoveIsCheckmate(Board board, Move move)
-    // {
-    //     board.MakeMove(move);
-    //     bool isMate = board.IsInCheckmate();
-    //     board.UndoMove(move);
-    //     return isMate;
-    // }
-    
-    // bool MoveIsCheck(Board board, Move move)
-    // {
-    //     board.MakeMove(move);
-    //     bool isCheck = board.IsInCheck();
-    //     board.UndoMove(move);
-    //     return isCheck;
-    // }
-    
-    private float EvaluateMove(Board board, Move evMove, int depth, float alpha, float beta, bool isWhite)
+    private float EvaluateMove(Board board, int depth, float alpha, float beta, int color)
     {
-        int opponentMovesCount = board.GetLegalMoves().Length;
-        board.MakeMove(evMove);
-        var moves = board.GetLegalMoves();
-        int who2Move = isWhite ? 1 : -1;
+        Move[] moves;
 
-        float tempEval = float.NegativeInfinity;
+        if (board.IsDraw()) return 0;
 
-        if (board.IsInCheckmate())
+        if (depth == 0 || (moves = board.GetLegalMoves()).Length == 0)
         {
-            board.UndoMove(evMove);
-            return 99999999.0f * who2Move;
-        }
-        
-        if (moves.Length == 0) 
-        {
-            board.UndoMove(evMove); 
-            return 0;
-        }
+            //int wMobility = color ? moves.Length : opponentMovesCount;
+            //int bMobility = color ? opponentMovesCount : moves.Length;
 
+            float sum = 0.0f;
 
-        if (depth == 0)
-        {
-            int wMobility = isWhite ? moves.Length : opponentMovesCount;
-            int bMobility = isWhite ? opponentMovesCount : moves.Length;
-            
-            board.UndoMove(evMove);
-            return (100 * (board.GetPieceList(PieceType.Pawn, board.IsWhiteToMove).Count -
-                          board.GetPieceList(PieceType.Pawn, !board.IsWhiteToMove).Count)
-                   + 300 * (board.GetPieceList(PieceType.Knight, board.IsWhiteToMove).Count -
-                            board.GetPieceList(PieceType.Knight, !board.IsWhiteToMove).Count)
-                   + 300 * (board.GetPieceList(PieceType.Bishop, board.IsWhiteToMove).Count -
-                            board.GetPieceList(PieceType.Bishop, !board.IsWhiteToMove).Count)
-                   + 500 * (board.GetPieceList(PieceType.Rook, board.IsWhiteToMove).Count -
-                            board.GetPieceList(PieceType.Rook, !board.IsWhiteToMove).Count)
-                   + 900 * (board.GetPieceList(PieceType.Queen, board.IsWhiteToMove).Count -
-                            board.GetPieceList(PieceType.Queen, !board.IsWhiteToMove).Count) + 5 * (wMobility-bMobility)) * who2Move;
+            if (board.IsInCheckmate()) return -99999999.0f;
+
+            for (int i = 0; ++i < 7;)
+                sum += (board.GetPieceList((PieceType)i, true).Count - (board.GetPieceList((PieceType)i, false).Count * _pieceValues[i]));
+
+            return color * sum;
         }
 
-        
+        float recordValue = float.NegativeInfinity;
+
         foreach (var move in moves)
         {
-            // if (isWhite)
-            
-                tempEval = Max(tempEval, -EvaluateMove(board, move, depth - 1, -beta, -alpha, !isWhite));
-                alpha = Max(alpha, tempEval);
+            board.MakeMove(move);
+            float value = -EvaluateMove(board, depth - 1, -beta, -alpha, -color);
+            board.UndoMove(move);
 
-                if (alpha >= beta)
+            if(recordValue < value)
+            {
+                recordValue = value;
+                if (depth == _depth)
                 {
-                    Console.WriteLine("Skipped");
-                    break;
+                    _bestMove = move;
+                    _bestScore = recordValue;
                 }
-                else
-                {
-                    Console.WriteLine("Not Skipped");
-                }
-            
-            // else
-            // {
-            //     tempEval = Min(tempEval, EvaluateMove(board, move, depth - 1, alpha, beta, !isWhite));
-            //     beta = Min(beta, tempEval);
-            //
-            //     if (tempEval < alpha)
-            //     {
-            //         Console.WriteLine("Skipped");
-            //         break;
-            //     }
-            //     else
-            //     {
-            //         Console.WriteLine("Not Skipped");
-            //     }
-            // }
+            }
+
+            alpha = Max(alpha, recordValue);
+            if (alpha >= beta) break;
         }
-        
-        board.UndoMove(evMove);
-        return tempEval;
+
+        return recordValue;
     }
-    
-    private float Max(float f1, float f2) {
+
+    private float Max(float f1, float f2)
+    {
         if (f1 >= f2) return f1; else return f2;
     }
-    private float Min(float f1, float f2) {
+    private float Min(float f1, float f2)
+    {
         if (f1 <= f2) return f1; else return f2;
     }
-    
-    // private List<Piece> GetPassedPawns(Board board)
-    // {
-    //     var myBotPawns = board.GetPieceList(PieceType.Pawn, board.IsWhiteToMove);
-    //     var opponentPawns = board.GetPieceList(PieceType.Pawn, !board.IsWhiteToMove);
-    //
-    //     List<Piece> passedPawns = new List<Piece>();
-    //     
-    //     for (int i = 0; i < myBotPawns.Count; i++)
-    //     {
-    //         bool addToList = true;
-    //         for (int j = 0; j < opponentPawns.Count; j++)
-    //         {
-    //             if (myBotPawns[i].Square.File == opponentPawns[j].Square.File)
-    //             {
-    //                 addToList = false;
-    //                 break;
-    //             }
-    //         }
-    //
-    //         if (addToList)
-    //         {
-    //             passedPawns.Add(myBotPawns[i]);
-    //         }
-    //     }
-    //
-    //     return passedPawns;
-    // }
-    //
-    // private void UpdateMoveArray(Move newMove)
-    // {
-    //     for (int i = 0; i < _moves.Length; i++)
-    //     {
-    //         if (_moves[i] != Move.NullMove) continue;
-    //         
-    //         _moves[i] = newMove;
-    //         break;
-    //     }
-    //
-    //     if (_moves.Contains(newMove)) return;
-    //     
-    //     for (int i = _moves.Length - 1; i > 0; i--) 
-    //     { 
-    //         _moves[i] = _moves[i - 1];
-    //     }
-    //     _moves[0] = newMove;
-    // }
+
+    private int Clamp(int value, int min, int max)
+    {
+        if(value < min) return min; 
+        if(value > max) return max; 
+        return value;
+    }
 }
